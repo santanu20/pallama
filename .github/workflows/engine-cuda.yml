@@ -7,7 +7,7 @@ name: engine-cuda
 # as `bNNNN-cuda` releases on THIS repository. Pallama's engine lane
 # picks them up automatically on Linux-NVIDIA boxes whose driver can
 # run the toolkit version (zero-touch: the overlay home defaults to
-# pallama/pallama — flip ENGINE_OVERLAY_REPO_DEFAULT in gh.rs if the
+# santanu20/pallama — flip ENGINE_OVERLAY_REPO_DEFAULT in gh.rs if the
 # project repo moves; PALLAMA_ENGINE_REPO=owner/repo points at forks).
 #
 # No source fork: every build checks out the pristine upstream tarball.
