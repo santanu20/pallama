@@ -137,7 +137,12 @@ jobs:
             -DCMAKE_BUILD_RPATH_USE_ORIGIN=ON \
             -DGGML_CUDA_F16=ON \
             -DLLAMA_CURL=OFF \
-            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_SHARED_LIBS=ON \
+            -DLLAMA_BUILD_NUMBER="${TAG#b}" \
+            -DLLAMA_BUILD_COMMIT="$TAG"
+          # ^ Checkout-less tarball builds have no git context, so upstream
+          # defaults the version banner to "build 0, commit unknown";
+          # NOT-DEFINED guards make both overridable at configure time.
           # ggml-rpc-server ships in upstream prebuilt assets; a
           # server-only build breaks the runtime's rpc override leg.
           cmake --build build --config Release -j"$(nproc)" --target llama-server ggml-rpc-server
