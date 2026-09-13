@@ -190,12 +190,18 @@ jobs:
           [ -e "$1" ] || { echo "libcudart not bundled" >&2; exit 1; }
           set -- "$stage"/libcublas.so*
           [ -e "$1" ] || { echo "libcublas not bundled" >&2; exit 1; }
-          tar -C "$(dirname "$stage")" -czf "asset.tar.gz" "$(basename "$stage")"
+          # Canonical asset name (gh.rs resolve_cuda_asset grammar):
+          # llama-bNNNN-bin-ubuntu-cuda-{X.Y}-x64.tar.gz — a generic name
+          # made both matrix jobs collide into one overwritten file at
+          # release-upload time (run 7 shipped a single `asset.tar.gz`).
+          ver="${CUDA_VER%.*}"
+          asset="llama-${TAG}-bin-ubuntu-cuda-${ver}-x64.tar.gz"
+          tar -C "$(dirname "$stage")" -czf "$asset" "$(basename "$stage")"
 
       - uses: actions/upload-artifact@v4
         with:
           name: cuda-${{ matrix.cuda }}
-          path: asset.tar.gz
+          path: llama-*-bin-ubuntu-cuda-*-x64.tar.gz
           if-no-files-found: error
 
   release:
