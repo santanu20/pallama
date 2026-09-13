@@ -173,7 +173,7 @@ jobs:
             [ -e "$lib" ] || continue
             install -m 0755 "$lib" "$stage/"
           done
-          for rt in libcudart.so libcublas.so libcublasLt.so; do
+          for rt in libcudart.so libcublas.so libcublasLt.so libnccl.so; do
             # ldd resolves to the REAL file behind any symlink chain —
             # devel-image entries are symlinks, so find -type f sees
             # nothing (run-4 lesson). find -L kept as fallback.
