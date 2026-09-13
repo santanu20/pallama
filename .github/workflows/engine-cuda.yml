@@ -108,12 +108,23 @@ jobs:
             -DCMAKE_CUDA_ARCHITECTURES="$CMAKE_CUDA_ARCHITECTURES" \
             -DGGML_CUDA_F16=ON \
             -DLLAMA_CURL=OFF \
-            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs"
+          # cuGetErrorString & friends are CUDA DRIVER API symbols. The
+          # GPU-less CI container has no libcuda.so.1 — only toolkit
+          # stubs, off the default link path — so the final exe link
+          # fails without the stub dir above. Stub SONAME is
+          # libcuda.so.1, so the NEEDED entry resolves against the real
+          # driver on user machines. Never bundle libcuda.
           # ggml-rpc-server ships in upstream prebuilt assets; a
           # server-only build breaks the runtime's rpc override leg.
           cmake --build build --config Release -j"$(nproc)" --target llama-server ggml-rpc-server
 
       - name: Smoke (--help, CUDA device probe is driver-less in CI)
+        env:
+          # Stub libcuda.so.1 satisfies the dynamic loader for the
+          # NEEDED entry; CUDA probes degrade to "no device" cleanly.
+          LD_LIBRARY_PATH: /usr/local/cuda/lib64/stubs
         run: |
           find build/bin -name 'llama-server*' -type f | head
           "$(find build/bin -name 'llama-server' -type f | head -1)" --version
