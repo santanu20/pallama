@@ -192,19 +192,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.resolve.outputs.tag }}
+          REPO: santanu20/pallama
         run: |
           rel="${TAG}-cuda"
-          # gh release create fails on an existing release — create only
-          # when missing, then upload with --clobber so re-runs refresh
-          # assets (digests recompute on GitHub's side automatically).
-          gh release view "$rel" || gh release create "$rel" \
-            --title "$rel" \
-            --notes "Prebuilt CUDA llama-server for upstream ${TAG}.
+          # This job has NO checkout — every gh call needs --repo (gh
+          # otherwise resolves context from git and dies). Notes ride in a
+          # quoted heredoc: backticks inside a double-quoted shell string
+          # are COMMAND SUBSTITUTION (run 6: `pallama ...` executed and
+          # printed "pallama: command not found" into the notes).
+          read -r -d '' notes <<EOF || true
+          Prebuilt CUDA llama-server for upstream ${TAG}.
 
           Compiled from the pristine ggml-org/llama.cpp ${TAG} source
           (-DGGML_CUDA=ON, slim consumer arch matrix per toolkit major
           plus PTX on the newest arch for forward JIT; datacenter GPUs:
-          build locally via `pallama engine build cuda`). Bundles
+          build locally via \`pallama engine build cuda\`). Bundles
           libcudart/libcublas/libcublasLt plus NVIDIA EULA texts — no
           CUDA toolkit install needed on the target machine; the NVIDIA
           driver alone must support the asset's CUDA version.
@@ -212,5 +214,12 @@ jobs:
           Install lane: pallama engine update prefers this channel
           automatically on Linux-NVIDIA (highest ubuntu-cuda-{X.Y}-x64
           asset the local driver can run; PALLAMA_ENGINE_REPO overrides
-          the default home for forks)."
-          gh release upload "$rel" dist/* --clobber
+          the default home for forks).
+          EOF
+          # gh release create fails on an existing release — create only
+          # when missing, then upload with --clobber so re-runs refresh
+          # assets (digests recompute on GitHub's side automatically).
+          gh release view "$rel" --repo "$REPO" \
+            || gh release create "$rel" --repo "$REPO" \
+              --title "$rel" --notes "$notes"
+          gh release upload "$rel" dist/* --clobber --repo "$REPO"
