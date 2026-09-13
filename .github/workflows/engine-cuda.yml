@@ -194,6 +194,16 @@ jobs:
           [ -e "$1" ] || { echo "libcudart not bundled" >&2; exit 1; }
           set -- "$stage"/libcublas.so*
           [ -e "$1" ] || { echo "libcublas not bundled" >&2; exit 1; }
+
+          # Devel-leak guard (nccl-class misses): every NEEDED lib of
+          # every staged ELF must live in the stage or be a base-system
+          # lib. Anything still resolving to a devel-image path means the
+          # bundle list is incomplete — fail HERE, not at user probe.
+          leaks="$(for f in "$stage"/llama-server "$stage"/*.so*; do
+              ldd "$f" 2>/dev/null || true
+            done | grep -oE '/usr/local/cuda[^ ]*|/opt/[^ ]*' | sort -u || true)"
+          [ -z "$leaks" ] || {
+            echo "unbundled devel-image libs:" $leaks >&2; exit 1; }
           # Canonical asset name (gh.rs resolve_cuda_asset grammar):
           # llama-bNNNN-bin-ubuntu-cuda-{X.Y}-x64.tar.gz — a generic name
           # made both matrix jobs collide into one overwritten file at
