@@ -59,29 +59,40 @@ jobs:
 
   build:
     needs: resolve
-    name: cuda ${{ matrix.cuda }}
+    name: cuda ${{ matrix.cuda }} sm${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # CUDA minor-version compatibility is deliberately NOT trusted
-          # by the client (driver must be >= asset toolkit version), so
-          # each matrix entry names the exact toolkit it bundles.
-          # Arch lists: CUDA 13 dropped sm<75 (Turing floor); Blackwell
-          # (sm_100/120) needs 12.8+. env-overridable per dispatch.
-          # SLIM + PTX-forward: consumer SASS only (61..89 = Pascal→
-          # Ada; datacenter 80/90/100 and Volta 70 dropped — source lane
-          # covers them via `pallama engine build cuda`), plus sm_120
-          # plain so its PTX ships: future GPUs JIT forward from it.
+          # PER-ARCH channel: each job builds exactly ONE architecture
+          # (SASS-only via `-real`) and ships its own slim asset —
+          # llama-bNNNN-bin-ubuntu-cuda-{X.Y}-sm{NN}-x64.tar.gz — so a
+          # user downloads only their GPU's kernels (~60% size cut vs
+          # the fat build) and all arch jobs compile in parallel.
+          # sm120 is the exception: PLAIN (SASS+PTX) so its PTX ships
+          # and future GPUs JIT forward from it.
+          # Arch floors: CUDA 13 dropped sm<75 (Turing); Blackwell
+          # (sm_100/120) needs 12.8+. Datacenter 80/90/100 and Volta 70
+          # stay on the source lane (`pallama engine build cuda`).
+          # The client resolver ranks: exact-sm slim > legacy fat asset
+          # (transition releases) > sm120 PTX for GPUs newer than 120.
           # CMake grammar (verified 3.28.3): plain = SASS+PTX, -real =
-          # SASS only. Slim ≈ 1/3 the nvcc work of the old fat lists.
-          - { cuda: "12.8.1", archs: "61-real;75-real;86-real;89-real;120" }
-          - { cuda: "13.0.0", archs: "75-real;86-real;89-real;120" }
+          # SASS only. Dispatch `architectures` input still overrides.
+          - { cuda: "12.8.1", arch: "61" }
+          - { cuda: "12.8.1", arch: "75" }
+          - { cuda: "12.8.1", arch: "86" }
+          - { cuda: "12.8.1", arch: "89" }
+          - { cuda: "12.8.1", arch: "120" }
+          - { cuda: "13.0.0", arch: "75" }
+          - { cuda: "13.0.0", arch: "86" }
+          - { cuda: "13.0.0", arch: "89" }
+          - { cuda: "13.0.0", arch: "120" }
     runs-on: ubuntu-24.04
     container:
       image: nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu24.04
     env:
-      CMAKE_CUDA_ARCHITECTURES: ${{ github.event.inputs.architectures || matrix.archs }}
+      ARCH: ${{ matrix.arch }}
+      OVERRIDE_ARCHES: ${{ github.event.inputs.architectures }}
     steps:
       - name: Install build deps
         run: |
@@ -102,9 +113,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/ccache
-          key: ccache-cuda${{ matrix.cuda }}-${{ github.run_number }}
+          key: ccache-cuda${{ matrix.cuda }}-sm${{ matrix.arch }}-${{ github.run_number }}
           restore-keys: |
-            ccache-cuda${{ matrix.cuda }}-
+            ccache-cuda${{ matrix.cuda }}-sm${{ matrix.arch }}-
 
       - name: Fetch upstream source (${{ needs.resolve.outputs.tag }})
         env:
@@ -126,11 +137,20 @@ jobs:
           # Never bundle the real libcuda.
           cp /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so.1
           export CCACHE_DIR=/tmp/ccache
+          # One arch per job: SASS-only (-real); sm120 plain so its PTX
+          # ships for forward JIT. Dispatch override wins (fat rebuild).
+          if [ -n "$OVERRIDE_ARCHES" ]; then
+            arches="$OVERRIDE_ARCHES"
+          elif [ "$ARCH" = "120" ]; then
+            arches="120"
+          else
+            arches="${ARCH}-real"
+          fi
           cmake -S src -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DGGML_CUDA=ON \
             -DGGML_RPC=ON \
-            -DCMAKE_CUDA_ARCHITECTURES="$CMAKE_CUDA_ARCHITECTURES" \
+            -DCMAKE_CUDA_ARCHITECTURES="$arches" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
@@ -160,9 +180,10 @@ jobs:
           TAG: ${{ needs.resolve.outputs.tag }}
           CUDA_VER: ${{ matrix.cuda }}
         run: |
-          # Asset label carries the toolkit X.Y the driver gate keys on.
+          # Asset label carries the toolkit X.Y the driver gate keys on
+          # plus the per-arch -smNN the client resolver ranks on.
           ver="$(echo "$CUDA_VER" | cut -d. -f1,2)"
-          stage="$(mktemp -d)/llama-${TAG}-bin-ubuntu-cuda-${ver}-x64"
+          stage="$(mktemp -d)/llama-${TAG}-bin-ubuntu-cuda-${ver}-sm${ARCH}-x64"
           mkdir -p "$stage"
           bin="$(find build/bin -name 'llama-server' -type f | head -1)"
           install -m 0755 "$bin" "$stage/"
@@ -210,17 +231,18 @@ jobs:
           [ -z "$leaks" ] || {
             echo "unbundled devel-image libs:" $leaks >&2; exit 1; }
           # Canonical asset name (gh.rs resolve_cuda_asset grammar):
-          # llama-bNNNN-bin-ubuntu-cuda-{X.Y}-x64.tar.gz — a generic name
-          # made both matrix jobs collide into one overwritten file at
-          # release-upload time (run 7 shipped a single `asset.tar.gz`).
+          # llama-bNNNN-bin-ubuntu-cuda-{X.Y}-sm{NN}-x64.tar.gz — a
+          # generic name made matrix jobs collide into one overwritten
+          # file at release-upload time (run 7 shipped a single
+          # `asset.tar.gz`); the -smNN suffix keeps per-arch jobs unique.
           ver="${CUDA_VER%.*}"
-          asset="llama-${TAG}-bin-ubuntu-cuda-${ver}-x64.tar.gz"
+          asset="llama-${TAG}-bin-ubuntu-cuda-${ver}-sm${ARCH}-x64.tar.gz"
           tar -C "$(dirname "$stage")" -czf "$asset" "$(basename "$stage")"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cuda-${{ matrix.cuda }}
-          path: llama-*-bin-ubuntu-cuda-*-x64.tar.gz
+          name: cuda-${{ matrix.cuda }}-sm${{ matrix.arch }}
+          path: llama-*-bin-ubuntu-cuda-*-sm*-x64.tar.gz
           if-no-files-found: error
 
   release:
@@ -248,9 +270,10 @@ jobs:
           Prebuilt CUDA llama-server for upstream ${TAG}.
 
           Compiled from the pristine ggml-org/llama.cpp ${TAG} source
-          (-DGGML_CUDA=ON, slim consumer arch matrix per toolkit major
-          plus PTX on the newest arch for forward JIT; datacenter GPUs:
-          build locally via \`pallama engine build cuda\`). Bundles
+          (-DGGML_CUDA=ON; one slim asset per consumer GPU arch
+          (-smNN, SASS only), plus an sm120 build carrying PTX for
+          forward JIT onto future GPUs; datacenter archs: build locally
+          via \`pallama engine build cuda\`). Bundles
           libcudart/libcublas/libcublasLt plus NVIDIA EULA texts — no
           CUDA toolkit install needed on the target machine; the NVIDIA
           driver alone must support the asset's CUDA version.
