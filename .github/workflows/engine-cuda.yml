@@ -151,10 +151,15 @@ jobs:
             install -m 0755 "$lib" "$stage/"
           done
           for rt in libcudart.so libcublas.so libcublasLt.so; do
-            for p in /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu; do
-              matches="$(find "$p" -maxdepth 1 -name "${rt}.*" -type f 2>/dev/null | sort -V | tail -1)"
-              [ -z "$matches" ] || install -m 0755 "$matches" "$stage/"
-            done
+            # ldd resolves to the REAL file behind any symlink chain —
+            # devel-image entries are symlinks, so find -type f sees
+            # nothing (run-4 lesson). find -L kept as fallback.
+            src="$(ldd build/bin/llama-server build/bin/libggml-cuda*.so* 2>/dev/null \
+                   | grep -o "[^ ]*${rt}\.[0-9][^ ]*" | sort -u | head -1)"
+            [ -n "$src" ] || src="$(find -L /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu \
+                   -maxdepth 1 -name "${rt}.*" -type f 2>/dev/null | sort -V | tail -1)"
+            [ -n "$src" ] || { echo "$rt not found via ldd or find" >&2; exit 1; }
+            install -m 0755 "$src" "$stage/"
           done
           # EULA/attribution texts: redistribution obligations.
           cp -r /usr/local/cuda/doc /tmp/cuda-doc 2>/dev/null || true
