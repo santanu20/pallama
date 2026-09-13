@@ -225,15 +225,30 @@ jobs:
           set -- "$stage"/libcublas.so*
           [ -e "$1" ] || { echo "libcublas not bundled" >&2; exit 1; }
 
-          # Devel-leak guard (nccl-class misses): every NEEDED lib of
-          # every staged ELF must live in the stage or be a base-system
-          # lib. Anything still resolving to a devel-image path means the
-          # bundle list is incomplete — fail HERE, not at user probe.
-          leaks="$(for f in "$stage"/llama-server "$stage"/*.so*; do
-              ldd "$f" 2>/dev/null || true
-            done | grep -oE '/usr/local/cuda[^ ]*|/opt/[^ ]*' | sort -u || true)"
-          [ -z "$leaks" ] || {
-            echo "unbundled devel-image libs:" $leaks >&2; exit 1; }
+          # Devel-leak guard (nccl-class misses), run under the SAME
+          # loader contract as the pallama runtime: the engine dir is the
+          # child's LD_LIBRARY_PATH root, so staged libs win resolution
+          # exactly as they will on user machines. Bare `ldd` would use
+          # only RUNPATH/ld.so.cache semantics and false-positive on
+          # devel-image paths (run 13). Under the real contract, a devel
+          # path appearing STILL means a genuinely unbundled dep, and a
+          # "not found" means the stage is incomplete — both fail HERE,
+          # not at user probe.
+          guard=0
+          for f in "$stage"/llama-server "$stage"/ggml-rpc-server "$stage"/*.so*; do
+            out="$(LD_LIBRARY_PATH="$stage" ldd "$f" 2>/dev/null || true)"
+            bad="$(printf '%s\n' "$out" | grep -oE '/usr/local/cuda[^ ]*|/opt/[^ ]*' | sort -u || true)"
+            if [ -n "$bad" ]; then
+              echo "unbundled devel-image libs in $(basename "$f"):" $bad >&2
+              guard=1
+            fi
+            if printf '%s\n' "$out" | grep -q 'not found'; then
+              echo "$(basename "$f") unresolved under stage LD_LIBRARY_PATH:" >&2
+              printf '%s\n' "$out" | grep 'not found' >&2
+              guard=1
+            fi
+          done
+          [ "$guard" -eq 0 ] || exit 1
           # Canonical asset name (gh.rs resolve_cuda_asset grammar):
           # llama-bNNNN-bin-ubuntu-cuda-{X.Y}-sm{NN}-x64.tar.gz — a
           # generic name made matrix jobs collide into one overwritten
