@@ -81,7 +81,10 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl xz-utils zip python3 pip git
-          pip install --no-cache-dir cmake==3.28.3
+          # --break-system-packages: Ubuntu noble's PEP 668 guard blocks
+          # system-wide pip in the CUDA devel container; the container is
+          # disposable so the guard buys nothing here.
+          pip install --break-system-packages --no-cache-dir cmake==3.28.3
 
       - name: Fetch upstream source (${{ needs.resolve.outputs.tag }})
         env:
