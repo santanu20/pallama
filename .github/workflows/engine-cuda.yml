@@ -69,8 +69,14 @@ jobs:
           # each matrix entry names the exact toolkit it bundles.
           # Arch lists: CUDA 13 dropped sm<75 (Turing floor); Blackwell
           # (sm_100/120) needs 12.8+. env-overridable per dispatch.
-          - { cuda: "12.8.1", archs: "61;70;75;80;86;89;90;100;120" }
-          - { cuda: "13.0.0", archs: "75;80;86;89;90;100;120" }
+          # SLIM + PTX-forward: consumer SASS only (61..89 = Pascal→
+          # Ada; datacenter 80/90/100 and Volta 70 dropped — source lane
+          # covers them via `pallama engine build cuda`), plus sm_120
+          # plain so its PTX ships: future GPUs JIT forward from it.
+          # CMake grammar (verified 3.28.3): plain = SASS+PTX, -real =
+          # SASS only. Slim ≈ 1/3 the nvcc work of the old fat lists.
+          - { cuda: "12.8.1", archs: "61-real;75-real;86-real;89-real;120" }
+          - { cuda: "13.0.0", archs: "75-real;86-real;89-real;120" }
     runs-on: ubuntu-24.04
     container:
       image: nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu24.04
@@ -176,7 +182,9 @@ jobs:
             --notes "Prebuilt CUDA llama-server for upstream ${TAG}.
 
           Compiled from the pristine ggml-org/llama.cpp ${TAG} source
-          (-DGGML_CUDA=ON, arch matrix per toolkit major). Bundles
+          (-DGGML_CUDA=ON, slim consumer arch matrix per toolkit major
+          plus PTX on the newest arch for forward JIT; datacenter GPUs:
+          build locally via `pallama engine build cuda`). Bundles
           libcudart/libcublas/libcublasLt plus NVIDIA EULA texts — no
           CUDA toolkit install needed on the target machine; the NVIDIA
           driver alone must support the asset's CUDA version.
