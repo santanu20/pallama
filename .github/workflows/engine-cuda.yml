@@ -86,11 +86,25 @@ jobs:
       - name: Install build deps
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl xz-utils zip python3 pip git
+          apt-get install -y --no-install-recommends ca-certificates curl xz-utils zip python3 pip git ccache
           # --break-system-packages: Ubuntu noble's PEP 668 guard blocks
           # system-wide pip in the CUDA devel container; the container is
           # disposable so the guard buys nothing here.
           pip install --break-system-packages --no-cache-dir cmake==3.28.3
+
+      # Rolling compiler cache: keys on run_number so every run saves a
+      # fresh entry, restore-keys prefix makes the PREVIOUS run's cache
+      # the hit — unchanged files skip nvcc/gcc entirely. A failed-run
+      # retry or a one-tag-forward rebuild compiles only what changed
+      # (measured locally: repeat CUDA builds drop from ~50 min to
+      # single-digit minutes of actual compilation).
+      - name: ccache (compiler cache)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ccache
+          key: ccache-cuda${{ matrix.cuda }}-${{ github.run_number }}
+          restore-keys: |
+            ccache-cuda${{ matrix.cuda }}-
 
       - name: Fetch upstream source (${{ needs.resolve.outputs.tag }})
         env:
@@ -111,17 +125,22 @@ jobs:
           # entry resolves against the real driver on user machines.
           # Never bundle the real libcuda.
           cp /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so.1
+          export CCACHE_DIR=/tmp/ccache
           cmake -S src -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DGGML_CUDA=ON \
             -DGGML_RPC=ON \
             -DCMAKE_CUDA_ARCHITECTURES="$CMAKE_CUDA_ARCHITECTURES" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
             -DGGML_CUDA_F16=ON \
             -DLLAMA_CURL=OFF \
             -DBUILD_SHARED_LIBS=ON
           # ggml-rpc-server ships in upstream prebuilt assets; a
           # server-only build breaks the runtime's rpc override leg.
           cmake --build build --config Release -j"$(nproc)" --target llama-server ggml-rpc-server
+          ccache -s || true
 
       - name: Smoke (--help, CUDA device probe is driver-less in CI)
         run: |
