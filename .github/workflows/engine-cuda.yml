@@ -161,8 +161,11 @@ jobs:
           for f in /usr/local/cuda/doc/EULA.txt /usr/local/cuda/README /opt/nvidia/entropy/nvidia_end_user_license_agreement.txt; do
             [ -f "$f" ] && cp "$f" "$stage/" || true
           done
-          [ -n "$(compgen -G "$stage/libcudart*")" ] || { echo "libcudart not bundled" >&2; exit 1; }
-          [ -n "$(compgen -G "$stage/libcublas.so*")" ] || { echo "libcublas not bundled" >&2; exit 1; }
+          # POSIX-sh guards (compgen is a bash builtin; GH steps run dash).
+          set -- "$stage"/libcudart*
+          [ -e "$1" ] || { echo "libcudart not bundled" >&2; exit 1; }
+          set -- "$stage"/libcublas.so*
+          [ -e "$1" ] || { echo "libcublas not bundled" >&2; exit 1; }
           tar -C "$(dirname "$stage")" -czf "asset.tar.gz" "$(basename "$stage")"
 
       - uses: actions/upload-artifact@v4
