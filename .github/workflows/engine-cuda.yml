@@ -164,10 +164,13 @@ jobs:
           rpc="$(find build/bin -name 'ggml-rpc-server' -type f | head -1)"
           [ -n "$rpc" ] || { echo "ggml-rpc-server not built" >&2; exit 1; }
           install -m 0755 "$rpc" "$stage/"
-          # Shared ggml/llama libs (flat: the engine dir is the runtime's
-          # LD_LIBRARY_PATH root) + the NVIDIA runtime libs the binary
-          # links against, straight from the devel image.
-          for lib in build/bin/libggml*.so* build/bin/libllama*.so*; do
+          # Shared ggml/llama/aux libs (flat: the engine dir is the
+          # runtime's LD_LIBRARY_PATH root) + the NVIDIA runtime libs the
+          # binary links against, straight from the devel image. Globs,
+          # NOT a fixed list: upstream keeps adding linkdeps (libmtmd
+          # arrived ~b10940 — run 9's probe died on its absence).
+          for lib in build/bin/*.so build/bin/*.so.*; do
+            [ -e "$lib" ] || continue
             install -m 0755 "$lib" "$stage/"
           done
           for rt in libcudart.so libcublas.so libcublasLt.so; do
