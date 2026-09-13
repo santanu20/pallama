@@ -92,6 +92,10 @@ jobs:
       image: nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu24.04
     env:
       ARCH: ${{ matrix.arch }}
+      # Job-level so the configure step's -DLLAMA_BUILD_* derivation can
+      # see it (run 34783837345: step-local TAG made ${TAG#b} expand
+      # empty and the generated build-info.cpp failed to compile).
+      TAG: ${{ needs.resolve.outputs.tag }}
       OVERRIDE_ARCHES: ${{ github.event.inputs.architectures }}
     steps:
       - name: Install build deps
