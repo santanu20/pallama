@@ -134,6 +134,7 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_BUILD_RPATH_USE_ORIGIN=ON \
             -DGGML_CUDA_F16=ON \
             -DLLAMA_CURL=OFF \
             -DBUILD_SHARED_LIBS=ON
